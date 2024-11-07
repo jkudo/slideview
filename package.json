@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "scripts": {
+    "dev": "node scripts/updateSlidesList.js && slidev",
+    "build": "node scripts/updateSlidesList.js && slidev build --base /slideview/",
+    "export": "slidev export"
+  },
+  "dependencies": {
+    "@slidev/cli": "latest",
+    "@slidev/theme-default": "latest",
+    "@slidev/theme-seriph": "latest"
+  }
+}
