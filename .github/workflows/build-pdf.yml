@@ -1,4 +1,4 @@
-name: Convert PPTX by timestamp and update pdf-list
+name: Convert PPTX by timestamp and generate index.html
 
 on:
   push:
@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     
     permissions:
-      contents: write  # コミットするために必要
+      contents: write  # コミット・プッシュするために必要
 
     steps:
       - name: Check out repository
@@ -37,10 +37,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/pdfs/*.pdf docs/pdf-list.json
-          git commit -m "Update PDFs & pdf-list.json [skip ci]" || echo "No changes to commit"
+          git add docs/pdfs/*.pdf docs/pdf-list.json docs/index.html
+          git commit -m "Update PDFs & pdf-list.json & index.html [skip ci]" || echo "No changes to commit"
 
-      - name: Push
+      - name: Push changes
         uses: ad-m/github-push-action@v0.6.0
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
