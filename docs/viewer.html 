@@ -1,0 +1,105 @@
+<!-- docs/viewer.html -->
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>PDF Viewer (page-by-page)</title>
+    <!-- PDF.js (CDN版) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+  </head>
+  <body>
+    <h1>PDF.js Page Viewer</h1>
+    <!-- キャンバス：1ページ分を描画 -->
+    <canvas id="pdfCanvas"></canvas>
+
+    <!-- ページめくり用ボタン -->
+    <div style="margin-top: 20px;">
+      <button onclick="prevPage()">Prev</button>
+      <button onclick="nextPage()">Next</button>
+      <span id="pageInfo"></span>
+    </div>
+
+    <script>
+      // --- クエリパラメータからpdfファイル名を取得 ---
+      // 例: viewer.html?pdf=sample.pdf => "sample.pdf"
+      const urlParams = new URLSearchParams(window.location.search);
+      const pdfFileName = urlParams.get("pdf") || "sample.pdf";
+
+      // docs/pdfs ディレクトリにあるPDFを対象とする想定
+      const pdfUrl = "./pdfs/" + pdfFileName;
+      
+      let pdfDoc = null;
+      let pageNum = 1;
+      let pageRendering = false;
+      let pageNumPending = null;
+      const scale = 1.0;
+      const canvas = document.getElementById('pdfCanvas');
+      const ctx = canvas.getContext('2d');
+      const pageInfo = document.getElementById('pageInfo');
+
+      // PDF.js のグローバル変数
+      const pdfjsLib = window['pdfjs-dist/build/pdf'];
+      // Worker src
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+
+      // PDF読み込み
+      pdfjsLib.getDocument(pdfUrl).promise.then(doc => {
+        pdfDoc = doc;
+        console.log(`Loaded PDF: ${pdfFileName}, total pages: ${doc.numPages}`);
+        renderPage(pageNum);
+      }).catch(err => {
+        alert("PDFを読み込めませんでした: " + err.message);
+      });
+
+      // ページ描画
+      function renderPage(num) {
+        pageRendering = true;
+        pageInfo.textContent = `Loading page ${num}...`;
+
+        pdfDoc.getPage(num).then(page => {
+          const viewport = page.getViewport({ scale });
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+
+          const renderContext = {
+            canvasContext: ctx,
+            viewport: viewport
+          };
+          const renderTask = page.render(renderContext);
+          return renderTask.promise;
+        }).then(() => {
+          pageRendering = false;
+          pageInfo.textContent = `Page ${num} / ${pdfDoc.numPages}`;
+          // ページ切り替え待ちがある場合は再度描画
+          if (pageNumPending !== null) {
+            renderPage(pageNumPending);
+            pageNumPending = null;
+          }
+        });
+      }
+
+      // 連続操作に対応
+      function queueRenderPage(num) {
+        if (pageRendering) {
+          pageNumPending = num;
+        } else {
+          renderPage(num);
+        }
+      }
+
+      // Prevボタン
+      function prevPage() {
+        if (pageNum <= 1) return;
+        pageNum--;
+        queueRenderPage(pageNum);
+      }
+
+      // Nextボタン
+      function nextPage() {
+        if (pageNum >= pdfDoc.numPages) return;
+        pageNum++;
+        queueRenderPage(pageNum);
+      }
+    </script>
+  </body>
+</html>
