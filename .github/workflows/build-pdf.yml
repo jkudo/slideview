@@ -1,4 +1,4 @@
-name: Convert PPTX to PDF (MD5 approach) & Cleanup
+name: Convert PPTX to PDF (MD5 approach), Cleanup, and Update pdf-list.json
 
 on:
   push:
@@ -10,76 +10,75 @@ jobs:
     runs-on: ubuntu-latest
     
     permissions:
-      contents: write  # GitHub Actionsがcommit/pushするために必要
+      contents: write  # GitHub Actions がコミット/プッシュするため
 
     steps:
-      # 1) リポジトリをチェックアウト
+      # 1. リポジトリをチェックアウト
       - name: Check out repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # 2) LibreOffice をインストール
+      # 2. LibreOffice をインストール (pptx → pdf)
       - name: Install LibreOffice
         run: |
           sudo apt-get update
           sudo apt-get install -y libreoffice
 
-      # 3) slides/*.pptx/.ppt を MD5で差分判定し、PDF変換
+      # 3. PPTX を MD5で差分判定し、PDF変換
       - name: Convert PPTX to PDF (MD5 approach)
         run: |
           mkdir -p slides-pdf
           
           for file in slides/*.pptx slides/*.ppt; do
-            # ファイルが実在しないパターンをスキップ
-            if [ -f "$file" ]; then
-              base=$(basename "$file")         # 例: sample.pptx
-              base_noext="${base%.*}"         # 例: sample
-              pdf_name="${base_noext}.pdf"    # 例: sample.pdf
-              pdf_path="slides-pdf/${pdf_name}"
-              md5_file="slides-pdf/${base_noext}.md5"
+            [ -f "$file" ] || continue
+            base=$(basename "$file")          # 例: sample.pptx
+            base_noext="${base%.*}"          # 例: sample
+            pdf_name="${base_noext}.pdf"     # 例: sample.pdf
+            pdf_path="slides-pdf/${pdf_name}"
+            md5_file="slides-pdf/${base_noext}.md5"
 
-              # PPTXのMD5計算
-              pptx_md5=$(md5sum "$file" | cut -d ' ' -f1)
+            # PPTXのMD5を計算
+            pptx_md5=$(md5sum "$file" | cut -d ' ' -f1)
 
-              # PDFが未生成 or MD5ファイルが無い or ハッシュが異なる場合のみ再変換
-              if [ ! -f "$pdf_path" ] || [ ! -f "$md5_file" ] || [ "$pptx_md5" != "$(cat "$md5_file")" ]; then
-                echo "Converting $file -> $pdf_name"
-                libreoffice --headless --convert-to pdf "$file" --outdir slides-pdf
-                # 新たなMD5を保存
-                echo "$pptx_md5" > "$md5_file"
-              else
-                echo "Skipping $file (no changes)"
-              fi
+            # PDFが無い or MD5ファイルが無い or MD5が異なる場合のみ再変換
+            if [ ! -f "$pdf_path" ] || [ ! -f "$md5_file" ] || [ "$pptx_md5" != "$(cat "$md5_file")" ]; then
+              echo "Converting $file -> $pdf_name"
+              libreoffice --headless --convert-to pdf "$file" --outdir slides-pdf
+              # 新たなMD5を書き込み
+              echo "$pptx_md5" > "$md5_file"
+            else
+              echo "Skipping $file (no changes)"
             fi
           done
 
           echo "---- Generated files in slides-pdf ----"
           ls -l slides-pdf || true
 
-      # 4) 不要ファイルを削除＆docs/pdfs へコピー
-      - name: Sync PDF & MD5 to docs
+      # 4. PDF & MD5 を docs/pdfs/ にコピーし、orphan(対応PPTXが削除された)を削除
+      - name: Sync PDF & MD5 to docs + Remove orphans
         run: |
           mkdir -p docs/pdfs
           mkdir -p docs/pdfs/md5
 
           # 4-1) PDF & MD5 をコピー
-          cp slides-pdf/*.pdf docs/pdfs || true
-          cp slides-pdf/*.md5 docs/pdfs/md5 || true
+          cp slides-pdf/*.pdf docs/pdfs 2>/dev/null || true
+          cp slides-pdf/*.md5 docs/pdfs/md5 2>/dev/null || true
 
-          # 4-2) orphan削除 (slides に無いファイルを削除)
-          #     => PPTX が削除された場合、そのPDF と MD5 も削除
+          # 4-2) orphan削除: PPTX が消えたら PDF & MD5 も削除
           for pdf_file in docs/pdfs/*.pdf; do
             [ -f "$pdf_file" ] || continue
             pdf_base=$(basename "$pdf_file" .pdf)
-            # slides/に同名のpptx or pptが無ければ削除
+
+            # slides/に同名のpptx or ppt がなければ削除
             if [ ! -f "slides/${pdf_base}.pptx" ] && [ ! -f "slides/${pdf_base}.ppt" ]; then
               echo "Removing orphaned PDF: $pdf_file"
               rm "$pdf_file"
-              # MD5ファイルも削除
-              if [ -f "docs/pdfs/md5/${pdf_base}.md5" ]; then
-                echo "Removing orphaned MD5: docs/pdfs/md5/${pdf_base}.md5"
-                rm "docs/pdfs/md5/${pdf_base}.md5"
+
+              md5_target="docs/pdfs/md5/${pdf_base}.md5"
+              if [ -f "$md5_target" ]; then
+                echo "Removing orphaned MD5: $md5_target"
+                rm "$md5_target"
               fi
             fi
           done
@@ -89,26 +88,26 @@ jobs:
           echo "---- docs/pdfs/md5 ----"
           ls -l docs/pdfs/md5 || true
 
-      # 5) (任意) Node.js セットアップ & PDFリスト(json)生成など
+      # 5. Node.js セットアップ & pdf-list.json を更新
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: '16'
 
-      - name: Generate index or pdf-list
+      - name: Generate pdf-list.json
         run: |
           npm install fs-extra
           node scripts/generate-index.js
+          # ここで docs/pdfs/*.pdf をスキャンして pdf-list.json を作り直す
 
-      # 6) コミット & プッシュ (PDFとMD5を含む)
-      - name: Commit changes
+      # 6. 変換結果(PDF, MD5) + pdf-list.json をコミット & プッシュ
+      - name: Commit and push changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           
           git add docs/pdfs/*.pdf docs/pdfs/md5/*.md5 docs/pdf-list.json
-          
-          git commit -m "Update PDFs & MD5 & pdf-list [skip ci]" || echo "No changes to commit"
+          git commit -m "Update PDFs, MD5, and pdf-list.json [skip ci]" || echo "No changes to commit"
 
       - name: Push changes
         uses: ad-m/github-push-action@v0.6.0
