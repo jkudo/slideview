@@ -1,4 +1,4 @@
-name: Convert PPTX to PDF (Incremental) and Generate List
+name: Convert PPTX to PDF (MD5-based incremental)
 
 on:
   push:
@@ -10,66 +10,83 @@ jobs:
     runs-on: ubuntu-latest
     
     permissions:
-      contents: write
+      contents: write  # コミット・プッシュに必要
 
     steps:
+      # 1) リポジトリをチェックアウト
       - name: Check out repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
+      # 2) LibreOffice をインストール (pptx→pdfに使用)
       - name: Install LibreOffice
         run: |
           sudo apt-get update
           sudo apt-get install -y libreoffice
 
-      - name: Convert PPTX to PDF (Incremental)
+      # 3) slides ディレクトリ内の ppt/pptx を MD5 チェックして差分のみ変換
+      - name: Convert PPTX to PDF (MD5 approach)
         run: |
           mkdir -p slides-pdf
           
-          # slides/*.pptx/.ppt を対象に差分チェック
           for file in slides/*.pptx slides/*.ppt; do
             if [ -f "$file" ]; then
               base=$(basename "$file")
-              # 拡張子を除去 → .pdfを付けた名前
-              base_noext="${base%.*}"
+              base_noext="${base%.*}"    # "sample1" など拡張子除去
               pdf_name="${base_noext}.pdf"
               pdf_path="slides-pdf/${pdf_name}"
+              md5_path="slides-pdf/${base_noext}.md5"
 
-              # もし PDF が未生成、または PPTX/PPT のほうが新しければ変換
-              if [ ! -f "$pdf_path" ] || [ "$file" -nt "$pdf_path" ]; then
+              # 1) PPTX のMD5を計算
+              #    (ubuntu-latest には md5sum が標準で入っています)
+              pptx_md5=$(md5sum "$file" | cut -d ' ' -f1)
+
+              # 2) 条件判定: PDFが未生成 or MD5ファイルがない or MD5が一致しない なら変換
+              if [ ! -f "$pdf_path" ] || [ ! -f "$md5_path" ] || [ "$pptx_md5" != "$(cat "$md5_path")" ]; then
                 echo "Converting $file -> $pdf_name"
                 libreoffice --headless --convert-to pdf "$file" --outdir slides-pdf
+
+                # 変換後に今回のMD5を保存
+                echo "$pptx_md5" > "$md5_path"
               else
-                echo "Skipping $file (no newer changes)"
+                echo "Skipping $file (no changes)"
               fi
             fi
           done
-          
+
           echo "---- PDF files in slides-pdf ----"
           ls -l slides-pdf
 
-      - name: Copy PDFs to docs/pdfs
+      # 4) 生成した PDF (と必要ならMD5ファイルも) を docs/pdfs/ へコピー
+      - name: Copy PDFs
         run: |
           mkdir -p docs/pdfs
           cp slides-pdf/*.pdf docs/pdfs || true
+          # (必要ならMD5ファイルもコミットしたい場合)
+          # mkdir -p docs/pdfs/md5
+          # cp slides-pdf/*.md5 docs/pdfs/md5 || true
+          
           echo "---- docs/pdfs ----"
           ls -l docs/pdfs
 
+      # 5) Node.js セットアップ & PDFリスト(json)生成など(任意)
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: '16'
 
-      - name: Generate pdf-list.json
+      - name: Generate index or pdf-list (optional)
         run: |
           npm install fs-extra
           node scripts/generate-index.js
 
+      # 6) docs/pdfs/ と 生成物 をコミット & プッシュ
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # MD5ファイルもコミットしたい場合は加える
           git add docs/pdfs/*.pdf docs/pdf-list.json
           git commit -m "Update PDFs & pdf-list.json [skip ci]" || echo "No changes to commit"
 
