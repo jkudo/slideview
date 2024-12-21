@@ -3,7 +3,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>Modern PDF Viewer (Single Page)</title>
+  <title>SlideView</title>
   
   <!-- Bootstrap 5 CSS (CDN) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
@@ -26,6 +26,12 @@
       border: 1px solid #ccc;
       max-width: 100%;
     }
+    /* 右側の初期表示(何もPDFがロードされていない時)に見せる領域 */
+    #empty-view {
+      text-align: center;
+      color: #aaa;
+      margin-top: 50px;
+    }
   </style>
 </head>
 
@@ -34,51 +40,59 @@
   <div class="row">
     <!-- ===================== 左サイドバー ===================== -->
     <div class="col-3 bg-white" id="sidebar">
-      <h4 class="p-3 border-bottom">Slides (PDF List)</h4>
+      <h4 class="p-3 border-bottom">Slide List</h4>
       <ul class="list-group list-group-flush" id="pdf-list">
-        <!-- generate-index.js で作られた pdf-list.json を fetch し、JSでここに一覧を追加 -->
+        <!-- generate-index.js が作る pdf-list.json を fetch し、JSで一覧を追加 -->
       </ul>
     </div>
 
     <!-- ===================== 右メインビュー ===================== -->
     <div class="col-9 p-4">
-      <h1 class="mb-4">PDF.js Page Viewer</h1>
+      <!-- 初期表示: SlideView のタイトルを表示(まだPDFロードしていない場合) -->
+      <div id="empty-view">
+        <h1>SlideView</h1>
+        <p>左のリストからPDFファイルを選択してください</p>
+      </div>
+      
+      <!-- PDF描画エリア(非表示でスタート) -->
+      <div id="pdf-viewer" style="display: none;">
+        <h1 class="mb-4">PDF.js Page Viewer</h1>
+        <!-- キャンバス: 1ページ分を描画 -->
+        <canvas id="pdfCanvas"></canvas>
 
-      <!-- キャンバス: 1ページ分を描画 -->
-      <canvas id="pdfCanvas"></canvas>
-
-      <!-- ページめくりボタン & ページ情報 -->
-      <div class="mt-4">
-        <button class="btn btn-primary me-2" onclick="prevPage()">Prev</button>
-        <button class="btn btn-primary me-2" onclick="nextPage()">Next</button>
-        <span id="pageInfo" class="fw-bold"></span>
+        <!-- ページめくりボタン & ページ情報 -->
+        <div class="mt-4">
+          <button class="btn btn-primary me-2" onclick="prevPage()">Prev</button>
+          <button class="btn btn-primary me-2" onclick="nextPage()">Next</button>
+          <span id="pageInfo" class="fw-bold"></span>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-  // ----------------------------------------------------------------
-  // 1) PDF.js の設定
-  // ----------------------------------------------------------------
+  // ==========================
+  // 1) PDF.js 設定
+  // ==========================
   const pdfjsLib = window['pdfjs-dist/build/pdf'];
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
 
-  let pdfDoc = null;          // 現在ロード中のPDF
-  let pageNum = 1;            // 現在のページ番号
-  let pageRendering = false;  // ページ描画中フラグ
-  let pageNumPending = null;  // ページ切り替え待ち
-  const scale = 1.0;          // 拡大率
+  let pdfDoc = null;   // 現在ロード中のPDF
+  let pageNum = 1;     // 現在のページ番号
+  let pageRendering = false;
+  let pageNumPending = null;
+  const scale = 1.0;
   const canvas = document.getElementById('pdfCanvas');
   const ctx = canvas.getContext('2d');
   const pageInfo = document.getElementById('pageInfo');
 
-  // ----------------------------------------------------------------
+  // ==========================
   // 2) PDFロード → 1ページずつ描画
-  // ----------------------------------------------------------------
+  // ==========================
   function loadPdf(pdfFileName) {
-    const pdfUrl = "./pdfs/" + pdfFileName;  // docs/pdfs/
+    const pdfUrl = "./pdfs/" + pdfFileName;
     pageNum = 1;
     pageRendering = false;
     pageNumPending = null;
@@ -86,6 +100,11 @@
     pdfjsLib.getDocument(pdfUrl).promise.then(doc => {
       pdfDoc = doc;
       console.log("PDF loaded:", pdfFileName, "Pages:", doc.numPages);
+
+      // SlideView(初期画面)を非表示, PDFビューアを表示
+      document.getElementById('empty-view').style.display = 'none';
+      document.getElementById('pdf-viewer').style.display = 'block';
+
       renderPage(pageNum);
     }).catch(err => {
       alert("Could not load PDF: " + err.message);
@@ -125,9 +144,6 @@
     }
   }
 
-  // ----------------------------------------------------------------
-  // 3) Prev / Next ボタン
-  // ----------------------------------------------------------------
   function prevPage() {
     if (!pdfDoc) return;
     if (pageNum <= 1) return;
@@ -142,30 +158,32 @@
     queueRenderPage(pageNum);
   }
 
-  // ----------------------------------------------------------------
-  // 4) pdf-list.json を fetch し、左サイドバーに一覧表示
-  // ----------------------------------------------------------------
+  // ==========================
+  // 3) pdf-list.json を fetch → サイドバーに一覧
+  // ==========================
   fetch('./pdf-list.json')
     .then(res => {
       if (!res.ok) throw new Error('Failed to fetch pdf-list.json');
-      return res.json();
+      return res.json(); 
+      // 形: [ { name: 'sample1.pdf', mtime: '2024-01-15 12:34:56' }, ... ]
     })
-    .then(pdfFiles => {
+    .then(pdfList => {
       const pdfListEl = document.getElementById('pdf-list');
-      // pdfFiles は ["sample1.pdf","sample2.pdf", ...] の配列
+      // 各PDFファイルを <li> として追加
+      pdfList.forEach(item => {
+        const fileName = item.name;
+        const mtime = item.mtime;  // "YYYY-MM-DD HH:mm:ss"
 
-      // PDF名ごとに <li> を作成して追加
-      pdfFiles.forEach((fileName, idx) => {
+        // <li class="list-group-item">
+        //   sample1.pdf (2024-01-15 12:34:56)
+        // </li>
         const li = document.createElement('li');
-        li.className = "list-group-item";
-        li.textContent = fileName;
+        li.className = "list-group-item d-flex justify-content-between align-items-center";
+        // テキスト: "ファイル名 (更新日時)"
+        li.textContent = `${fileName} (${mtime})`;
         li.onclick = () => loadPdf(fileName);
-        pdfListEl.appendChild(li);
 
-        // 最初(先頭)のPDFを自動で読み込みたい場合
-        if (idx === 0) {
-          loadPdf(fileName);
-        }
+        pdfListEl.appendChild(li);
       });
     })
     .catch(err => {
