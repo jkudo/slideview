@@ -1,4 +1,4 @@
-name: Convert PPTX to PDF and Generate Index
+name: Convert PPTX to PDF and Generate PDF List
 
 on:
   push:
@@ -10,22 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     
     permissions:
-      contents: write  # GitHub Actionsでコミット・プッシュするために必要
+      contents: write
 
     steps:
-      # 1) リポジトリをチェックアウト
       - name: Check out repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # 2) LibreOffice をインストール (pptx -> pdf 変換)
       - name: Install LibreOffice
         run: |
           sudo apt-get update
           sudo apt-get install -y libreoffice
 
-      # 3) slides ディレクトリ内の ppt/pptx を pdf に変換
       - name: Convert PPTX to PDF
         run: |
           mkdir -p slides-pdf
@@ -35,37 +32,33 @@ jobs:
               libreoffice --headless --convert-to pdf "$file" --outdir slides-pdf
             fi
           done
-          echo "---- Generated PDFs ----"
+          echo "---- PDF Generated ----"
           ls -l slides-pdf
 
-      # 4) 生成したPDFを docs/pdfs/ へコピー
-      - name: Copy PDFs to docs
+      - name: Copy PDFs to docs/pdfs
         run: |
           mkdir -p docs/pdfs
           cp slides-pdf/*.pdf docs/pdfs || true
           echo "---- docs/pdfs ----"
           ls -l docs/pdfs
 
-      # 5) Node.js をセットアップ & index.html を生成
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: '16'
 
-      - name: Generate index.html
+      - name: Generate pdf-list.json
         run: |
           npm install fs-extra
           node scripts/generate-index.js
 
-      # 6) docs/pdfs/*.pdf と docs/index.html をコミット
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/pdfs/*.pdf docs/index.html
-          git commit -m "Add updated PDFs & index [skip ci]" || echo "No changes to commit"
+          git add docs/pdfs/*.pdf docs/pdf-list.json
+          git commit -m "Update PDFs & pdf-list.json [skip ci]" || echo "No changes to commit"
 
-      # 7) 変更をプッシュ
       - name: Push changes
         uses: ad-m/github-push-action@v0.6.0
         with:
