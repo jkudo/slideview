@@ -1,4 +1,4 @@
-name: Convert PPTX to PDF and Generate PDF List
+name: Convert PPTX to PDF and Generate List
 
 on:
   push:
@@ -32,14 +32,12 @@ jobs:
               libreoffice --headless --convert-to pdf "$file" --outdir slides-pdf
             fi
           done
-          echo "---- PDF Generated ----"
           ls -l slides-pdf
 
-      - name: Copy PDFs to docs/pdfs
+      - name: Copy PDFs to docs
         run: |
           mkdir -p docs/pdfs
           cp slides-pdf/*.pdf docs/pdfs || true
-          echo "---- docs/pdfs ----"
           ls -l docs/pdfs
 
       - name: Setup Node
