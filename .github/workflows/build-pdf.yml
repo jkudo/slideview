@@ -1,4 +1,4 @@
-name: Convert PPTX to PDF and Generate List
+name: Convert PPTX to PDF (Incremental) and Generate List
 
 on:
   push:
@@ -23,21 +23,37 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libreoffice
 
-      - name: Convert PPTX to PDF
+      - name: Convert PPTX to PDF (Incremental)
         run: |
           mkdir -p slides-pdf
+          
+          # slides/*.pptx/.ppt を対象に差分チェック
           for file in slides/*.pptx slides/*.ppt; do
             if [ -f "$file" ]; then
-              echo "Converting $file..."
-              libreoffice --headless --convert-to pdf "$file" --outdir slides-pdf
+              base=$(basename "$file")
+              # 拡張子を除去 → .pdfを付けた名前
+              base_noext="${base%.*}"
+              pdf_name="${base_noext}.pdf"
+              pdf_path="slides-pdf/${pdf_name}"
+
+              # もし PDF が未生成、または PPTX/PPT のほうが新しければ変換
+              if [ ! -f "$pdf_path" ] || [ "$file" -nt "$pdf_path" ]; then
+                echo "Converting $file -> $pdf_name"
+                libreoffice --headless --convert-to pdf "$file" --outdir slides-pdf
+              else
+                echo "Skipping $file (no newer changes)"
+              fi
             fi
           done
+          
+          echo "---- PDF files in slides-pdf ----"
           ls -l slides-pdf
 
-      - name: Copy PDFs to docs
+      - name: Copy PDFs to docs/pdfs
         run: |
           mkdir -p docs/pdfs
           cp slides-pdf/*.pdf docs/pdfs || true
+          echo "---- docs/pdfs ----"
           ls -l docs/pdfs
 
       - name: Setup Node
