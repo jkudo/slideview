@@ -1,4 +1,4 @@
-name: Convert PPTX by timestamp and update pdf-list
+name: Convert PPTX by timestamp and generate index.html
 
 on:
   push:
@@ -10,40 +10,35 @@ jobs:
     runs-on: ubuntu-latest
     
     permissions:
-      contents: write  # GitHub Actions でコミット & プッシュするため
+      contents: write  # コミット・プッシュするために必要
 
     steps:
-      # 1) リポジトリをチェックアウト
       - name: Check out repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      # 2) LibreOffice をインストール (Ubuntu)
       - name: Install LibreOffice
         run: |
           sudo apt-get update
           sudo apt-get install -y libreoffice
 
-      # 3) Node.js セットアップ
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: '16'
 
-      # 4) update-pdf-list.js を実行 (差分変換 & pdf-list.json更新)
       - name: Run update-pdf-list.js
         run: |
           npm install
           node scripts/update-pdf-list.js
 
-      # 5) 変更をコミット & プッシュ
       - name: Commit changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/pdfs/*.pdf docs/pdf-list.json
-          git commit -m "Update PDFs & pdf-list.json [skip ci]" || echo "No changes to commit"
+          git add docs/pdfs/*.pdf docs/pdf-list.json docs/index.html
+          git commit -m "Update PDFs & pdf-list.json & index.html [skip ci]" || echo "No changes to commit"
 
       - name: Push changes
         uses: ad-m/github-push-action@v0.6.0
