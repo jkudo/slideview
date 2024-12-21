@@ -1,28 +1,180 @@
+<!-- docs/index.html -->
 <!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>PDF List</title>
+  <title>Modern PDF Viewer (Single Page)</title>
+  
+  <!-- Bootstrap 5 CSS (CDN) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" />
+
+  <!-- PDF.js (CDN) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+
   <style>
     body {
-      font-family: sans-serif;
-      margin: 20px;
+      background-color: #f8f9fa;
     }
-    a {
-      color: blue;
-      text-decoration: none;
+    #sidebar {
+      min-height: 100vh;
+      border-right: 1px solid #ddd;
     }
-    a:hover {
-      text-decoration: underline;
+    #pdf-list .list-group-item {
+      cursor: pointer;
+    }
+    #pdfCanvas {
+      border: 1px solid #ccc;
+      max-width: 100%;
     }
   </style>
 </head>
-<body>
-  <h1>PDF List</h1>
-  <p>以下のPDFをクリックすると「viewer.html」でページめくり表示ができます。</p>
-  <ul>
 
-    <li><a href="./viewer.html?pdf=demo1.pdf">demo1.pdf</a></li>
-  </ul>
+<body>
+<div class="container-fluid">
+  <div class="row">
+    <!-- ===================== 左サイドバー ===================== -->
+    <div class="col-3 bg-white" id="sidebar">
+      <h4 class="p-3 border-bottom">Slides (PDF List)</h4>
+      <ul class="list-group list-group-flush" id="pdf-list">
+        <!-- generate-index.js で作られた pdf-list.json を fetch し、JSでここに一覧を追加 -->
+      </ul>
+    </div>
+
+    <!-- ===================== 右メインビュー ===================== -->
+    <div class="col-9 p-4">
+      <h1 class="mb-4">PDF.js Page Viewer</h1>
+
+      <!-- キャンバス: 1ページ分を描画 -->
+      <canvas id="pdfCanvas"></canvas>
+
+      <!-- ページめくりボタン & ページ情報 -->
+      <div class="mt-4">
+        <button class="btn btn-primary me-2" onclick="prevPage()">Prev</button>
+        <button class="btn btn-primary me-2" onclick="nextPage()">Next</button>
+        <span id="pageInfo" class="fw-bold"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ----------------------------------------------------------------
+  // 1) PDF.js の設定
+  // ----------------------------------------------------------------
+  const pdfjsLib = window['pdfjs-dist/build/pdf'];
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js";
+
+  let pdfDoc = null;          // 現在ロード中のPDF
+  let pageNum = 1;            // 現在のページ番号
+  let pageRendering = false;  // ページ描画中フラグ
+  let pageNumPending = null;  // ページ切り替え待ち
+  const scale = 1.0;          // 拡大率
+  const canvas = document.getElementById('pdfCanvas');
+  const ctx = canvas.getContext('2d');
+  const pageInfo = document.getElementById('pageInfo');
+
+  // ----------------------------------------------------------------
+  // 2) PDFロード → 1ページずつ描画
+  // ----------------------------------------------------------------
+  function loadPdf(pdfFileName) {
+    const pdfUrl = "./pdfs/" + pdfFileName;  // docs/pdfs/
+    pageNum = 1;
+    pageRendering = false;
+    pageNumPending = null;
+
+    pdfjsLib.getDocument(pdfUrl).promise.then(doc => {
+      pdfDoc = doc;
+      console.log("PDF loaded:", pdfFileName, "Pages:", doc.numPages);
+      renderPage(pageNum);
+    }).catch(err => {
+      alert("Could not load PDF: " + err.message);
+    });
+  }
+
+  function renderPage(num) {
+    pageRendering = true;
+    pageInfo.textContent = `Loading page ${num}...`;
+
+    pdfDoc.getPage(num).then(page => {
+      const viewport = page.getViewport({ scale });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+
+      const renderContext = {
+        canvasContext: ctx,
+        viewport: viewport
+      };
+      return page.render(renderContext).promise;
+    }).then(() => {
+      pageRendering = false;
+      pageInfo.textContent = `Page ${num} / ${pdfDoc.numPages}`;
+
+      if (pageNumPending !== null) {
+        renderPage(pageNumPending);
+        pageNumPending = null;
+      }
+    });
+  }
+
+  function queueRenderPage(num) {
+    if (pageRendering) {
+      pageNumPending = num;
+    } else {
+      renderPage(num);
+    }
+  }
+
+  // ----------------------------------------------------------------
+  // 3) Prev / Next ボタン
+  // ----------------------------------------------------------------
+  function prevPage() {
+    if (!pdfDoc) return;
+    if (pageNum <= 1) return;
+    pageNum--;
+    queueRenderPage(pageNum);
+  }
+
+  function nextPage() {
+    if (!pdfDoc) return;
+    if (pageNum >= pdfDoc.numPages) return;
+    pageNum++;
+    queueRenderPage(pageNum);
+  }
+
+  // ----------------------------------------------------------------
+  // 4) pdf-list.json を fetch し、左サイドバーに一覧表示
+  // ----------------------------------------------------------------
+  fetch('./pdf-list.json')
+    .then(res => {
+      if (!res.ok) throw new Error('Failed to fetch pdf-list.json');
+      return res.json();
+    })
+    .then(pdfFiles => {
+      const pdfListEl = document.getElementById('pdf-list');
+      // pdfFiles は ["sample1.pdf","sample2.pdf", ...] の配列
+
+      // PDF名ごとに <li> を作成して追加
+      pdfFiles.forEach((fileName, idx) => {
+        const li = document.createElement('li');
+        li.className = "list-group-item";
+        li.textContent = fileName;
+        li.onclick = () => loadPdf(fileName);
+        pdfListEl.appendChild(li);
+
+        // 最初(先頭)のPDFを自動で読み込みたい場合
+        if (idx === 0) {
+          loadPdf(fileName);
+        }
+      });
+    })
+    .catch(err => {
+      console.error(err);
+      alert("Failed to load pdf-list.json: " + err.message);
+    });
+</script>
+
+<!-- Bootstrap 5 JS (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
